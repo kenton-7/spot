@@ -16,7 +16,7 @@ void main() {
   });
   group('Invalid username', () {
     test('null username', () {
-      final username = null;
+      final username = '';
       final validationResult = Validator.username(username);
       expect(validationResult, 'Please enter more then 1 letters');
     });

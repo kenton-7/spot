@@ -14,7 +14,7 @@ import '../test_resources/constants.dart';
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
-    registerFallbackValue<Profile>(sampleProfile);
+    registerFallbackValue(sampleProfile);
   });
 
   test('Initial State', () {
@@ -44,8 +44,7 @@ void main() {
       'Will emit profile not found when the target profile is missing',
       build: () {
         final repository = MockRepository();
-        when(() => repository.getProfileDetail('aaa'))
-            .thenAnswer((_) => Future.value());
+        when(() => repository.getProfileDetail('aaa')).thenAnswer((_) => Future.value());
         when(() => repository.profileStream)
             .thenAnswer((_) => Stream.value({'bbb': otherProfileDetail}));
         return ProfileCubit(repository: repository);
@@ -61,8 +60,7 @@ void main() {
       'Emits error when profile not found',
       build: () {
         final repository = MockRepository();
-        when(() => repository.getProfileDetail('aaa'))
-            .thenThrow(PlatformException(code: ''));
+        when(() => repository.getProfileDetail('aaa')).thenThrow(PlatformException(code: ''));
         return ProfileCubit(repository: repository);
       },
       act: (cubit) async {

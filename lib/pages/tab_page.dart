@@ -94,8 +94,7 @@ class TabPageState extends State<TabPage> {
                   tabIndex: 1,
                 ),
                 const RecordButton(),
-                BlocBuilder<NotificationCubit, NotificationState>(
-                    builder: (context, state) {
+                BlocBuilder<NotificationCubit, NotificationState>(builder: (context, state) {
                   var hasNewNotifications = false;
                   if (state is NotificationLoaded && state.hasNewNotification) {
                     hasNewNotifications = true;
@@ -196,8 +195,7 @@ class TabPageState extends State<TabPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance
-        ?.addObserver(LifecycleEventHandler(resumeCallBack: onResumed));
+    WidgetsBinding.instance?.addObserver(LifecycleEventHandler(resumeCallBack: onResumed));
   }
 }
 
@@ -222,6 +220,7 @@ class LifecycleEventHandler extends WidgetsBindingObserver {
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
+      case AppLifecycleState.hidden:
     }
   }
 }
@@ -269,8 +268,7 @@ class RecordButton extends StatelessWidget {
                 onTap: () async {
                   await AuthRequired.action(context, action: () async {
                     final hasLocationPermission =
-                        await RepositoryProvider.of<Repository>(context)
-                            .hasLocationPermission();
+                        await RepositoryProvider.of<Repository>(context).hasLocationPermission();
                     if (hasLocationPermission) {
                       await Navigator.of(context).push(RecordPage.route());
                     } else {
@@ -307,12 +305,11 @@ class RecordButton extends StatelessWidget {
                                     GradientButton(
                                       onPressed: () async {
                                         final couldOpen =
-                                            await RepositoryProvider.of<
-                                                    Repository>(context)
+                                            await RepositoryProvider.of<Repository>(context)
                                                 .openLocationSettingsPage();
                                         if (!couldOpen) {
-                                          context.showErrorSnackbar(
-                                              'Failed to open settings page. ');
+                                          context
+                                              .showErrorSnackbar('Failed to open settings page. ');
                                         }
                                         Navigator.of(context).pop();
                                       },

@@ -1,4 +1,7 @@
+// ignore_for_file: lines_longer_than_80_chars, inference_failure_on_function_invocation
+
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -44,8 +47,7 @@ class Repository {
   // static const _localStorage = FlutterSecureStorage();
   static const _persistantSessionKey = 'supabase_session';
   static const _termsOfServiceAgreementKey = 'agreed';
-  static const _timestampOfLastSeenNotification =
-      'timestampOfLastSeenNotification';
+  static const _timestampOfLastSeenNotification = 'timestampOfLastSeenNotification';
 
   /// Used as a placeholder for myUserId when loading data
   /// that requires myUserID but not signed in
@@ -63,18 +65,15 @@ class Repository {
 
   /// Stream that emits video details.
   /// Mainly used when the user watches a video.
-  Stream<VideoDetail?> get videoDetailStream =>
-      _videoDetailStreamController.stream;
+  Stream<VideoDetail?> get videoDetailStream => _videoDetailStreamController.stream;
 
   /// In memory cache of profileDetails.
   @visibleForTesting
   final Map<String, ProfileDetail> profileDetailsCache = {};
-  final _profileStreamController =
-      BehaviorSubject<Map<String, ProfileDetail>>();
+  final _profileStreamController = BehaviorSubject<Map<String, ProfileDetail>>();
 
   /// Emits map of all profiles that are stored in memory.
-  Stream<Map<String, ProfileDetail>> get profileStream =>
-      _profileStreamController.stream;
+  Stream<Map<String, ProfileDetail>> get profileStream => _profileStreamController.stream;
 
   /// List of comments that are loaded about a particular video.
   @visibleForTesting
@@ -85,12 +84,10 @@ class Repository {
   Stream<List<Comment>> get commentsStream => _commentsStreamController.stream;
 
   List<AppNotification> _notifications = [];
-  final _notificationsStreamController =
-      BehaviorSubject<List<AppNotification>>();
+  final _notificationsStreamController = BehaviorSubject<List<AppNotification>>();
 
   /// Emits list of in app notification.
-  Stream<List<AppNotification>> get notificationsStream =>
-      _notificationsStreamController.stream;
+  Stream<List<AppNotification>> get notificationsStream => _notificationsStreamController.stream;
 
   final _mentionSuggestionCache = <String, List<Profile>>{};
 
@@ -119,8 +116,7 @@ class Repository {
       _localStorage.write(key: _persistantSessionKey, value: sessionString);
 
   /// Deletes session. Used when user logs out or recovering session failed.
-  Future<void> deleteSession() =>
-      _localStorage.delete(key: _persistantSessionKey);
+  Future<void> deleteSession() => _localStorage.delete(key: _persistantSessionKey);
 
   bool _hasRefreshedSession = false;
 
@@ -140,7 +136,7 @@ class Repository {
   }
 
   void _setAuthListenner() {
-    _supabaseClient.auth.onAuthStateChange((event, session) {
+    _supabaseClient.auth.onAuthStateChange.listen((data) {
       _resetCache();
     });
   }
@@ -148,34 +144,28 @@ class Repository {
   /// Recovers session stored inn device's storage.
   Future<void> recoverSession() async {
     final jsonStr = await _localStorage.read(key: _persistantSessionKey);
-    if (jsonStr == null) {
+    if (jsonStr == null || jsonStr == 'null') {
       await deleteSession();
       if (!statusKnown.isCompleted) {
         statusKnown.complete();
       }
-      return null;
+      return;
     }
 
-    final res = await _supabaseClient.auth.recoverSession(jsonStr);
-    final error = res.error;
-    if (error != null) {
+    try {
+      final res = await _supabaseClient.auth.recoverSession(jsonStr);
+      await setSessionString(json.encode(res.session!.toJson()));
+      await _resetCache();
+    } on PostgrestException catch (error) {
       await deleteSession();
       if (!statusKnown.isCompleted) {
         statusKnown.complete();
       }
       throw PlatformException(code: 'login error', message: error.message);
-    }
-    final session = res.data;
-    if (session == null) {
+    } catch (error) {
       await deleteSession();
-      if (!statusKnown.isCompleted) {
-        statusKnown.complete();
-      }
-      return null;
+      throw PlatformException(code: 'login error', message: error.toString());
     }
-
-    await setSessionString(session.persistSessionString);
-    await _resetCache();
   }
 
   /// Returns Persist Session String
@@ -183,13 +173,13 @@ class Repository {
     required String email,
     required String password,
   }) async {
-    final res = await _supabaseClient.auth.signUp(email, password);
-    final error = res.error;
-    if (error != null) {
-      throw PlatformException(code: 'signup error', message: error.message);
+    try {
+      final res = await _supabaseClient.auth.signUp(email: email, password: password);
+      await _analytics.logSignUp(signUpMethod: 'email');
+      return json.encode(res.session!.toJson());
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'signup error', message: error.toString());
     }
-    await _analytics.logSignUp(signUpMethod: 'email');
-    return res.data!.persistSessionString;
   }
 
   /// Returns Persist Session String
@@ -197,14 +187,13 @@ class Repository {
     required String email,
     required String password,
   }) async {
-    final res =
-        await _supabaseClient.auth.signIn(email: email, password: password);
-    final error = res.error;
-    if (error != null) {
+    try {
+      final res = await _supabaseClient.auth.signInWithPassword(email: email, password: password);
+      await _analytics.logLogin(loginMethod: 'email');
+      return json.encode(res.session!.toJson());
+    } on PostgrestException catch (error) {
       throw PlatformException(code: 'login error', message: error.message);
     }
-    await _analytics.logLogin(loginMethod: 'email');
-    return res.data!.persistSessionString;
   }
 
   /// Get the logged in user's profile.
@@ -218,102 +207,87 @@ class Repository {
       if (!myProfileHasLoaded.isCompleted) {
         myProfileHasLoaded.complete();
       }
-    } catch (e) {
-      print(e.toString());
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'login error', message: error.message);
     }
     if (!statusKnown.isCompleted) {
       statusKnown.complete();
     }
+    return null;
   }
 
   /// Get 5 closest videos from the current user's location.
   Future<void> getVideosFromLocation(LatLng location) async {
-    late final PostgrestResponse res;
-    res = await _supabaseClient
-        .rpc('nearby_videos', params: {
+    try {
+      final data = await _supabaseClient.rpc(
+        'nearby_videos',
+        params: {
           'location': 'POINT(${location.longitude} ${location.latitude})',
           'user_id': userId ?? _anonymousUUID,
-        })
-        .limit(5)
-        .execute();
+        },
+      ).limit(5);
 
-    final error = res.error;
-    final data = res.data;
-    if (error != null) {
-      throw PlatformException(code: 'getVideosFromLocation error');
-    } else if (data == null) {
-      throw PlatformException(code: 'getVideosFromLocation error null data');
+      if (data == null) {
+        throw PlatformException(code: 'getVideosFromLocation error null data');
+      }
+      final videoIds = _mapVideos.map((video) => video.id);
+      final newVideos = Video.videosFromData(data: data as List, userId: userId)
+          .where((video) => !videoIds.contains(video.id));
+      _mapVideos.addAll(newVideos);
+      _mapVideosStreamConntroller.sink.add(_mapVideos);
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'getVideosFromLocation error', message: error.message);
     }
-    final videoIds = _mapVideos.map((video) => video.id);
-    final newVideos = Video.videosFromData(data: data, userId: userId)
-        .where((video) => !videoIds.contains(video.id));
-    _mapVideos.addAll(newVideos);
-    _mapVideosStreamConntroller.sink.add(_mapVideos);
   }
 
   /// Loads all videos inside a bounding box.
   Future<void> getVideosInBoundingBox(LatLngBounds bounds) async {
-    late final PostgrestResponse res;
+    try {
+      final data = await _supabaseClient.rpc('videos_in_bouding_box', params: {
+        'min_lng': '${bounds.southwest.longitude}',
+        'min_lat': '${bounds.southwest.latitude}',
+        'max_lng': '${bounds.northeast.longitude}',
+        'max_lat': '${bounds.northeast.latitude}',
+        'user_id': userId ?? _anonymousUUID,
+      });
 
-    res = await _supabaseClient.rpc('videos_in_bouding_box', params: {
-      'min_lng': '${bounds.southwest.longitude}',
-      'min_lat': '${bounds.southwest.latitude}',
-      'max_lng': '${bounds.northeast.longitude}',
-      'max_lat': '${bounds.northeast.latitude}',
-      'user_id': userId ?? _anonymousUUID,
-    }).execute();
-
-    final error = res.error;
-    final data = res.data;
-    if (error != null) {
-      throw PlatformException(code: 'getVideosFromLocation error');
-    } else if (data == null) {
-      throw PlatformException(code: 'getVideosFromLocation error null data');
+      if (data == null) {
+        throw PlatformException(code: 'getVideosFromLocation error null data');
+      }
+      final videoIds = _mapVideos.map((video) => video.id);
+      final newVideos = Video.videosFromData(data: data as List, userId: userId)
+          .where((video) => !videoIds.contains(video.id));
+      _mapVideos.addAll(newVideos);
+      _mapVideosStreamConntroller.sink.add(_mapVideos);
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'getVideosFromLocation error', message: error.message);
     }
-    final videoIds = _mapVideos.map((video) => video.id);
-    final newVideos = Video.videosFromData(data: data, userId: userId)
-        .where((video) => !videoIds.contains(video.id));
-    _mapVideos.addAll(newVideos);
-    _mapVideosStreamConntroller.sink.add(_mapVideos);
   }
 
   /// Get videos created by a certain user.
   Future<List<Video>> getVideosFromUid(String uid) async {
-    final res = await _supabaseClient
-        .from('videos')
-        .select('id, user_id, created_at, url, image_url,'
-            ' thumbnail_url, gif_url, description')
-        .eq('user_id', uid)
-        .order('created_at')
-        .execute();
-    final error = res.error;
-    if (error != null) {
-      throw PlatformException(code: 'getVideosFromUid error');
+    try {
+      final data = await _supabaseClient
+          .from('videos')
+          .select('id, user_id, created_at, url, image_url,'
+              ' thumbnail_url, gif_url, description')
+          .eq('user_id', uid)
+          .order('created_at');
+      return Video.videosFromData(data: data, userId: userId);
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'getVideosFromUid error', message: error.message);
     }
-    final data = res.data;
-    if (data == null) {
-      throw PlatformException(code: 'getVideosFromUid error');
-    }
-    return Video.videosFromData(data: data, userId: userId);
   }
 
   /// Get list of videos that a certain user has liked.
   Future<List<Video>> getLikedPostsFromUid(String uid) async {
-    final res = await _supabaseClient
-        .from('liked_videos')
-        .select()
-        .eq('liked_by', uid)
-        .order('liked_at')
-        .execute();
-    final error = res.error;
-    if (error != null) {
-      throw PlatformException(code: 'getLikedPostsFromUid error');
+    try {
+      final data =
+          await _supabaseClient.from('liked_videos').select().eq('liked_by', uid).order('liked_at');
+      return Video.videosFromData(data: data, userId: userId);
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'getLikedPostsFromUid error', message: error.message);
     }
-    final data = res.data;
-    if (data == null) {
-      throw PlatformException(code: 'getLikedPostsFromUid error');
-    }
-    return Video.videosFromData(data: data, userId: userId);
   }
 
   /// Get profile detail of a certain user.
@@ -321,50 +295,49 @@ class Repository {
     if (profileDetailsCache[targetUid] != null) {
       return;
     }
-    late final PostgrestResponse res;
-    res = await _supabaseClient.rpc('profile_detail', params: {
-      'my_user_id': userId ?? _anonymousUUID,
-      'target_user_id': targetUid,
-    }).execute();
+    try {
+      final res = await _supabaseClient.rpc(
+        'profile_detail',
+        params: {
+          'my_user_id': userId ?? _anonymousUUID,
+          'target_user_id': targetUid,
+        },
+      );
 
-    final error = res.error;
-    if (error != null) {
+      if ((res as List).isEmpty) {
+        return;
+      }
+
+      final data = res as List<Map<dynamic, dynamic>>;
+
+      final profile = ProfileDetail.fromData(Map.from(data[0]));
+      profileDetailsCache[targetUid] = profile;
+      _profileStreamController.sink.add(profileDetailsCache);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Database_Error',
         message: error.message,
       );
     }
-    final data = res.data as List;
-
-    if (data.isEmpty) {
-      throw PlatformException(
-          code: error?.code ?? 'No User',
-          message: error?.message ?? 'Could not find the user. ');
-    }
-
-    final profile = ProfileDetail.fromData(data[0]);
-    profileDetailsCache[targetUid] = profile;
-    _profileStreamController.sink.add(profileDetailsCache);
   }
 
   /// Updates a profile of logged in user.
   Future<void> saveProfile({required Profile profile}) async {
-    final res =
-        await _supabaseClient.from('users').upsert(profile.toMap()).execute();
-    final data = res.data;
-    final error = res.error;
-    if (error != null) {
+    try {
+      final data = await _supabaseClient.from('users').upsert(profile.toMap());
+      if (data == null) {
+        throw PlatformException(
+          code: 'Database_Error',
+          message: 'Error occured while saving profile',
+        );
+      }
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Database_Error',
         message: error.message,
       );
     }
-    if (data == null) {
-      throw PlatformException(
-        code: 'Database_Error',
-        message: 'Error occured while saving profile',
-      );
-    }
+
     late final ProfileDetail newProfile;
     if (profileDetailsCache[userId!] != null) {
       newProfile = profileDetailsCache[userId!]!.copyWith(
@@ -398,41 +371,31 @@ class Repository {
     required File file,
     required String path,
   }) async {
-    final res = await _supabaseClient.storage.from(bucket).upload(path, file);
-    final error = res.error;
-    if (error != null) {
+    try {
+      await _supabaseClient.storage.from(bucket).upload(path, file);
+      final urlRes = _supabaseClient.storage.from(bucket).getPublicUrl(path);
+      return urlRes;
+    } on PostgrestException catch (error) {
       throw PlatformException(
-        code: error.error ?? 'uploadFile',
+        code: error.code ?? 'uploadFile',
         message: error.message,
       );
     }
-    final urlRes = _supabaseClient.storage.from(bucket).getPublicUrl(path);
-    final urlError = urlRes.error;
-    if (urlError != null) {
-      throw PlatformException(
-        code: urlError.error ?? 'uploadFile',
-        message: urlError.message,
-      );
-    }
-    return urlRes.data!;
   }
 
   /// Inserts a new row in `videos` table on Supabase.
   Future<void> saveVideo(Video creatingVideo) async {
-    final res = await _supabaseClient
-        .from('videos')
-        .insert([creatingVideo.toMap()]).execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      final data = await _supabaseClient.from('videos').insert([creatingVideo.toMap()]).select();
+      final createdVideo = creatingVideo.updateId(id: data[0]['id'] as String);
+      _mapVideos.add(createdVideo);
+      _mapVideosStreamConntroller.sink.add(_mapVideos);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'saveVideo',
         message: error.message,
       );
     }
-    final data = res.data;
-    final createdVideo = creatingVideo.updateId(id: data[0]['id'] as String);
-    _mapVideos.add(createdVideo);
-    _mapVideosStreamConntroller.sink.add(_mapVideos);
     await _analytics.logEvent(name: 'post_video');
   }
 
@@ -440,38 +403,38 @@ class Repository {
   Future<void> getVideoDetailStream(String videoId) async {
     _videoDetailStreamController.sink.add(null);
     final userId = _supabaseClient.auth.currentUser?.id;
-    late final PostgrestResponse res;
-    if (userId != null) {
-      res = await _supabaseClient.rpc('get_video_detail',
-          params: {'video_id': videoId, 'user_id': userId}).execute();
-    } else {
-      res = await _supabaseClient.rpc('anonymous_get_video_detail',
-          params: {'video_id': videoId}).execute();
-    }
-    final data = res.data;
-    final error = res.error;
-    if (error != null) {
+    try {
+      List<Map<dynamic, dynamic>> data;
+      if (userId != null) {
+        data = await _supabaseClient
+            .rpc('get_video_detail', params: {'video_id': videoId, 'user_id': userId});
+      } else {
+        data =
+            await _supabaseClient.rpc('anonymous_get_video_detail', params: {'video_id': videoId});
+      }
+
+      var videoDetail = VideoDetail.fromData(
+        data: Map.from(List<Map<dynamic, dynamic>>.from(data).first),
+        userId: userId,
+      );
+      if (videoDetail.position != null) {
+        final locationString = await _locationToString(videoDetail.position!);
+        videoDetail = videoDetail.copyWith(locationString: locationString);
+      }
+      _videoDetails[videoId] = videoDetail;
+      _videoDetailStreamController.sink.add(_videoDetails[videoId]);
+      await _analytics.logEvent(
+        name: 'view_video',
+        parameters: {
+          'video_id': videoId,
+        },
+      );
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Get Video Detail',
         message: error.message,
       );
-    } else if (data == null) {
-      throw PlatformException(
-        code: 'Get Video Detail no data',
-        message: 'No data found for this videoId',
-      );
     }
-    var videoDetail = VideoDetail.fromData(
-        data: Map.from(List.from(data).first), userId: userId);
-    if (videoDetail.position != null) {
-      final locationString = await _locationToString(videoDetail.position!);
-      videoDetail = videoDetail.copyWith(locationString: locationString);
-    }
-    _videoDetails[videoId] = videoDetail;
-    _videoDetailStreamController.sink.add(_videoDetails[videoId]!);
-    await _analytics.logEvent(name: 'view_video', parameters: {
-      'video_id': videoId,
-    });
   }
 
   /// Inserts a new row in `likes` table
@@ -479,32 +442,34 @@ class Repository {
   Future<void> like(Video video) async {
     final videoId = video.id;
     final currentVideoDetail = _videoDetails[videoId]!;
-    _videoDetails[videoId] = currentVideoDetail.copyWith(
-        likeCount: (currentVideoDetail.likeCount + 1), haveLiked: true);
-    _videoDetailStreamController.sink.add(_videoDetails[videoId]!);
+    _videoDetails[videoId] =
+        currentVideoDetail.copyWith(likeCount: currentVideoDetail.likeCount + 1, haveLiked: true);
+    _videoDetailStreamController.sink.add(_videoDetails[videoId]);
 
     if (profileDetailsCache[video.userId] != null) {
       // Increment the like count of liked user by 1
       profileDetailsCache[video.userId] = profileDetailsCache[video.userId]!
-          .copyWith(
-              likeCount: profileDetailsCache[video.userId]!.likeCount + 1);
+          .copyWith(likeCount: profileDetailsCache[video.userId]!.likeCount + 1);
       _profileStreamController.add(profileDetailsCache);
     }
 
     final uid = _supabaseClient.auth.currentUser!.id;
-    final res = await _supabaseClient.from('likes').insert([
-      VideoDetail.like(videoId: videoId, uid: uid),
-    ]).execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      await _supabaseClient.from('likes').insert([
+        VideoDetail.like(videoId: videoId, uid: uid),
+      ]);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Like Video',
         message: error.message,
       );
     }
-    await _analytics.logEvent(name: 'like_video', parameters: {
-      'video_id': videoId,
-    });
+    await _analytics.logEvent(
+      name: 'like_video',
+      parameters: {
+        'video_id': videoId,
+      },
+    );
   }
 
   /// Deletes a row in `likes` table and decrements the like count of a video.
@@ -512,26 +477,22 @@ class Repository {
     final videoId = video.id;
     final currentVideoDetail = _videoDetails[videoId]!;
     _videoDetails[videoId] = currentVideoDetail.copyWith(
-        likeCount: (currentVideoDetail.likeCount - 1), haveLiked: false);
-    _videoDetailStreamController.sink.add(_videoDetails[videoId]!);
+      likeCount: currentVideoDetail.likeCount - 1,
+      haveLiked: false,
+    );
+    _videoDetailStreamController.sink.add(_videoDetails[videoId]);
 
     if (profileDetailsCache[video.userId] != null) {
       // Decrement the like count of liked user by 1
       profileDetailsCache[video.userId] = profileDetailsCache[video.userId]!
-          .copyWith(
-              likeCount: profileDetailsCache[video.userId]!.likeCount - 1);
+          .copyWith(likeCount: profileDetailsCache[video.userId]!.likeCount - 1);
       _profileStreamController.add(profileDetailsCache);
     }
 
     final uid = _supabaseClient.auth.currentUser!.id;
-    final res = await _supabaseClient
-        .from('likes')
-        .delete()
-        .eq('video_id', videoId)
-        .eq('user_id', uid)
-        .execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      await _supabaseClient.from('likes').delete().eq('video_id', videoId).eq('user_id', uid);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Unlike Video',
         message: error.message,
@@ -545,23 +506,21 @@ class Repository {
 
   /// Loads comments of a video and emits it on a stream.
   Future<void> getComments(String videoId) async {
-    final res = await _supabaseClient
-        .from('video_comments')
-        .select()
-        .eq('video_id', videoId)
-        .order('created_at')
-        .execute();
-    final data = res.data;
-    final error = res.error;
-    if (error != null) {
+    try {
+      final data = await _supabaseClient
+          .from('video_comments')
+          .select()
+          .eq('video_id', videoId)
+          .order('created_at');
+
+      comments = Comment.commentsFromData(List.from(data));
+      _commentsStreamController.sink.add(comments);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Unlike Video',
         message: error.message,
       );
     }
-    comments = Comment.commentsFromData(List.from(data));
-    _commentsStreamController.sink.add(comments);
-
     Future<Comment> replaceCommentText(Comment comment) async {
       final commentText = await replaceMentionsWithUserNames(comment.text);
       return comment.copyWith(text: commentText);
@@ -580,38 +539,41 @@ class Repository {
     required String videoId,
     required List<Profile> mentions,
   }) async {
-    final userId = _supabaseClient.auth.currentUser!.id;
-    final res = await _supabaseClient
-        .from('comments')
-        .insert(Comment.create(text: text, userId: userId, videoId: videoId))
-        .execute();
-    final error = res.error;
-    if (error != null) {
+    String commentId;
+    try {
+      final userId = _supabaseClient.auth.currentUser!.id;
+      final res = await _supabaseClient
+          .from('comments')
+          .insert(Comment.create(text: text, userId: userId, videoId: videoId))
+          .select();
+
+      if (mentions.isEmpty) {
+        return;
+      }
+      final data = List<Map<String, String>>.from(res);
+      commentId = data[0]['id']!;
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'commet Video',
         message: error.message,
       );
     }
-    if (mentions.isEmpty) {
-      return;
-    }
-    final commentId = res.data![0]['id'];
-    final mentionRes = await _supabaseClient
-        .from('mentions')
-        .insert(mentions
-            .where((mentionedProfile) =>
-                mentionedProfile.id != _videoDetails[videoId]?.userId)
-            .map((profile) => {
-                  'comment_id': commentId,
-                  'user_id': profile.id,
-                })
-            .toList())
-        .execute();
-    final mentionError = mentionRes.error;
-    if (mentionError != null) {
+    try {
+      await _supabaseClient.from('mentions').insert(
+            mentions
+                .where((mentionedProfile) => mentionedProfile.id != _videoDetails[videoId]?.userId)
+                .map(
+                  (profile) => {
+                    'comment_id': commentId,
+                    'user_id': profile.id,
+                  },
+                )
+                .toList(),
+          );
+    } on PostgrestException catch (error) {
       throw PlatformException(
-        code: mentionError.code ?? 'commet Video',
-        message: mentionError.message,
+        code: error.code ?? 'commet Video',
+        message: error.message,
       );
     }
     await _analytics.logEvent(name: 'post_comment', parameters: {
@@ -625,60 +587,56 @@ class Repository {
       // If the user is not signed in, do not emit anything
       return;
     }
-    final res = await _supabaseClient
-        .from('notifications')
-        .select()
-        .eq('receiver_user_id', userId)
-        .not('action_user_id', 'eq', userId)
-        .order('created_at')
-        .limit(50)
-        .execute();
-    final data = res.data;
-    final error = res.error;
-    if (error != null) {
+    try {
+      final data = await _supabaseClient
+          .from('notifications')
+          .select()
+          .eq('receiver_user_id', userId!)
+          .not('action_user_id', 'eq', userId)
+          .order('created_at')
+          .limit(50);
+
+      final timestampOfLastSeenNotification =
+          await _localStorage.read(key: _timestampOfLastSeenNotification);
+      DateTime? createdAtOfLastSeenNotification;
+      if (timestampOfLastSeenNotification != null) {
+        createdAtOfLastSeenNotification = DateTime.parse(timestampOfLastSeenNotification);
+      }
+      _notifications = AppNotification.fromData(data,
+          createdAtOfLastSeenNotification: createdAtOfLastSeenNotification);
+      _notificationsStreamController.sink.add(_notifications);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'getNotifications',
         message: error.message,
       );
     }
-    final timestampOfLastSeenNotification =
-        await _localStorage.read(key: _timestampOfLastSeenNotification);
-    DateTime? createdAtOfLastSeenNotification;
-    if (timestampOfLastSeenNotification != null) {
-      createdAtOfLastSeenNotification =
-          DateTime.parse(timestampOfLastSeenNotification);
-    }
-    _notifications = AppNotification.fromData(data,
-        createdAtOfLastSeenNotification: createdAtOfLastSeenNotification);
-    _notificationsStreamController.sink.add(_notifications);
-
     Future<AppNotification> _replaceCommentTextWithMentionedUserName(
       AppNotification notification,
     ) async {
       if (notification.commentText == null) {
         return notification;
       }
-      final commentText =
-          await replaceMentionsWithUserNames(notification.commentText!);
+      final commentText = await replaceMentionsWithUserNames(notification.commentText!);
       return notification.copyWith(commentText: commentText);
     }
 
-    _notifications = await Future.wait(
-        _notifications.map(_replaceCommentTextWithMentionedUserName));
+    _notifications =
+        await Future.wait(_notifications.map(_replaceCommentTextWithMentionedUserName));
     _notificationsStreamController.sink.add(_notifications);
   }
 
   /// Blocks a certain user.
   Future<void> block(String blockedUserId) async {
-    final uid = _supabaseClient.auth.currentUser!.id;
-    final res = await _supabaseClient.from('blocks').insert([
-      {
-        'user_id': uid,
-        'blocked_user_id': blockedUserId,
-      }
-    ]).execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      final uid = _supabaseClient.auth.currentUser!.id;
+      await _supabaseClient.from('blocks').insert([
+        {
+          'user_id': uid,
+          'blocked_user_id': blockedUserId,
+        }
+      ]);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Unlike Video',
         message: error.message,
@@ -686,9 +644,12 @@ class Repository {
     }
     _mapVideos.removeWhere((value) => value.userId == blockedUserId);
     _mapVideosStreamConntroller.sink.add(_mapVideos);
-    await _analytics.logEvent(name: 'block_user', parameters: {
-      'user_id': blockedUserId,
-    });
+    await _analytics.logEvent(
+      name: 'block_user',
+      parameters: {
+        'user_id': blockedUserId,
+      },
+    );
   }
 
   /// Reports a certain video.
@@ -696,33 +657,32 @@ class Repository {
     required String videoId,
     required String reason,
   }) async {
-    final uid = _supabaseClient.auth.currentUser!.id;
-    final res = await _supabaseClient.from('reports').insert({
-      'user_id': uid,
-      'video_id': videoId,
-      'reason': reason,
-    }).execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      final uid = _supabaseClient.auth.currentUser!.id;
+      await _supabaseClient.from('reports').insert({
+        'user_id': uid,
+        'video_id': videoId,
+        'reason': reason,
+      });
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Report Video Error',
         message: error.message,
       );
     }
-    await _analytics.logEvent(name: 'report_video', parameters: {
-      'video_id': videoId,
-    });
+    await _analytics.logEvent(
+      name: 'report_video',
+      parameters: {
+        'video_id': videoId,
+      },
+    );
   }
 
   /// Deletes a certain video.
   Future<void> deleteVideo({required String videoId}) async {
-    final res = await _supabaseClient
-        .from('videos')
-        .delete()
-        .eq('id', videoId)
-        .execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      await _supabaseClient.from('videos').delete().eq('id', videoId);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Delete Video',
         message: error.message,
@@ -730,33 +690,36 @@ class Repository {
     }
     _mapVideos.removeWhere((video) => video.id == videoId);
     _mapVideosStreamConntroller.sink.add(_mapVideos);
-    await _analytics.logEvent(name: 'delete_video', parameters: {
-      'video_id': videoId,
-    });
+    await _analytics.logEvent(
+      name: 'delete_video',
+      parameters: {
+        'video_id': videoId,
+      },
+    );
   }
 
   /// Performs a keyword search of videos.
   Future<List<Video>> searchVideo(String queryString) async {
     final query = queryString.split(' ').map((word) => "'$word'").join(' & ');
 
-    final res = await _supabaseClient
-        .from('videos')
-        .select('id, url, image_url, thumbnail_url, gif_url, '
-            'description, user_id, created_at')
-        .textSearch('description', query, config: 'english')
-        .order('created_at')
-        .limit(50)
-        .execute();
-    final error = res.error;
-    if (error != null) {
+    try {
+      final res = await _supabaseClient
+          .from('videos')
+          .select('id, url, image_url, thumbnail_url, gif_url, '
+              'description, user_id, created_at')
+          .textSearch('description', query, config: 'english')
+          .order('created_at')
+          .limit(50);
+
+      final data = res as List;
+      await _analytics.logSearch(searchTerm: queryString);
+      return Video.videosFromData(data: data, userId: userId);
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Unlike Video',
         message: error.message,
       );
     }
-    final data = res.data as List;
-    await _analytics.logSearch(searchTerm: queryString);
-    return Video.videosFromData(data: data, userId: userId);
   }
 
   /// Loads `VideoPlayerController` of a video.
@@ -767,8 +730,7 @@ class Repository {
   /// Returns whether the user has turned on location permission or not.
   Future<bool> hasLocationPermission() async {
     final result = await Geolocator.requestPermission();
-    return result != LocationPermission.denied &&
-        result != LocationPermission.deniedForever;
+    return result != LocationPermission.denied && result != LocationPermission.deniedForever;
   }
 
   /// Updates the timestamp of when the user has last seen notifications.
@@ -776,8 +738,7 @@ class Repository {
   /// Timestamp of when the user has last seen notifications is used to
   /// determine which notification is unread.
   Future<void> updateTimestampOfLastSeenNotification(DateTime time) async {
-    await _localStorage.write(
-        key: _timestampOfLastSeenNotification, value: time.toIso8601String());
+    await _localStorage.write(key: _timestampOfLastSeenNotification, value: time.toIso8601String());
   }
 
   /// Performs a keyword search of location within a map.
@@ -788,8 +749,7 @@ class Repository {
         return null;
       }
       final location = locations.first;
-      await _analytics.logEvent(
-          name: 'search_location', parameters: {'search_term': searchQuery});
+      await _analytics.logEvent(name: 'search_location', parameters: {'search_term': searchQuery});
       return LatLng(location.latitude, location.longitude);
     } catch (e) {
       return null;
@@ -798,10 +758,8 @@ class Repository {
 
   /// Opens a share dialog to share the video on other social media or apps.
   Future<void> shareVideo(VideoDetail videoDetail) async {
-    await Share.share(
-        'Check out this video on Spot http://spotvideo.app/post/${videoDetail.id}');
-    await _analytics.logEvent(
-        name: 'share_video', parameters: {'video_id': videoDetail.id});
+    await Share.share('Check out this video on Spot http://spotvideo.app/post/${videoDetail.id}');
+    await _analytics.logEvent(name: 'share_video', parameters: {'video_id': videoDetail.id});
   }
 
   /// Loads cached image file.
@@ -816,23 +774,18 @@ class Repository {
     if (_mentionSuggestionCache[queryString] != null) {
       return _mentionSuggestionCache[queryString]!;
     }
-    final res = await _supabaseClient
-        .from('users')
-        .select()
-        .ilike('name', '%$queryString%')
-        .limit(2)
-        .execute();
-    final error = res.error;
-    if (error != null) {
-      throw PlatformException(
-          code: 'Error finding mentionend users', message: error.message);
+    try {
+      final res =
+          await _supabaseClient.from('users').select().ilike('name', '%$queryString%').limit(2);
+
+      final data = res as List<Map<dynamic, dynamic>>;
+      final profiles =
+          data.map<Profile>((row) => Profile.fromData(Map<String, dynamic>.from(row))).toList();
+      _mentionSuggestionCache[queryString] = profiles;
+      return profiles;
+    } on PostgrestException catch (error) {
+      throw PlatformException(code: 'Error finding mentionend users', message: error.message);
     }
-    final data = List.from(res.data);
-    final profiles = data
-        .map<Profile>((row) => Profile.fromData(Map<String, dynamic>.from(row)))
-        .toList();
-    _mentionSuggestionCache[queryString] = profiles;
-    return profiles;
   }
 
   /// Get all of the mentioned profiles in a comment
@@ -848,15 +801,13 @@ class Repository {
 
     /// Map where user name is the key and profile is the value
     final userNameMap = <String, Profile>{}
-      ..addEntries(
-          profilesInComments.map((profile) => MapEntry(profile.name, profile)))
-      ..addEntries(profileDetailsCache.values.map<MapEntry<String, Profile>>(
-          (profile) => MapEntry(profile.name, profile)))
+      ..addEntries(profilesInComments.map((profile) => MapEntry(profile.name, profile)))
+      ..addEntries(profileDetailsCache.values
+          .map<MapEntry<String, Profile>>((profile) => MapEntry(profile.name, profile)))
       ..addEntries(_mentionSuggestionCache.values
           .expand((i) => i)
           .toList()
-          .map<MapEntry<String, Profile>>(
-              (profile) => MapEntry(profile.name, profile)));
+          .map<MapEntry<String, Profile>>((profile) => MapEntry(profile.name, profile)));
     final mentionedProfiles = userNames
         .map<Profile?>((userName) => userNameMap[userName])
         .where((profile) => profile != null)
@@ -867,12 +818,10 @@ class Repository {
 
   /// Replaces mentioned user names with users' id in comment text
   /// Called right before saving a new comment to the database
-  String replaceMentionsInAComment(
-      {required String comment, required List<Profile> mentions}) {
+  String replaceMentionsInAComment({required String comment, required List<Profile> mentions}) {
     var mentionReplacedText = comment;
     for (final mention in mentions) {
-      mentionReplacedText =
-          mentionReplacedText.replaceAll('@${mention.name}', '@${mention.id}');
+      mentionReplacedText = mentionReplacedText.replaceAll('@${mention.name}', '@${mention.id}');
     }
     return mentionReplacedText;
   }
@@ -893,8 +842,7 @@ class Repository {
 
   /// Returns list of userIds that are present in a comment
   List<String> getUserIdsInComment(String comment) {
-    final regExp = RegExp(
-        r'@[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b');
+    final regExp = RegExp(r'@[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b');
     final matches = regExp.allMatches(comment);
     return matches.map((match) => match.group(0)!.substring(1)).toList();
   }
@@ -903,10 +851,8 @@ class Repository {
   Future<String> replaceMentionsWithUserNames(
     String comment,
   ) async {
-    await Future.wait(
-        getUserIdsInComment(comment).map(getProfileDetail).toList());
-    final regExp = RegExp(
-        r'@[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b');
+    await Future.wait(getUserIdsInComment(comment).map(getProfileDetail).toList());
+    final regExp = RegExp(r'@[0-9a-f]{8}\b-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-\b[0-9a-f]{12}\b');
     final replacedComment = comment.replaceAllMapped(regExp, (match) {
       final key = match.group(0)!.substring(1);
       final name = profileDetailsCache[key]?.name;
@@ -922,21 +868,20 @@ class Repository {
   /// It has a wierd formula so that it does not go
   /// over iOS's max z-index value.
   double getZIndex(DateTime createdAt) {
-    return max((createdAt.millisecondsSinceEpoch ~/ 1000000 - 1600000), 0)
-        .toDouble();
+    return max(createdAt.millisecondsSinceEpoch ~/ 1000000 - 1600000, 0).toDouble();
   }
 
   /// Opens device's camera roll to find videos taken in the past.
   Future<File?> getVideoFile() async {
     try {
-      final pickedVideo =
-          await ImagePicker().getVideo(source: ImageSource.gallery);
+      final pickedVideo = await ImagePicker().pickVideo(source: ImageSource.gallery);
       if (pickedVideo != null) {
         return File(pickedVideo.path);
       }
     } catch (err) {
       debugPrint(err.toString());
     }
+    return null;
   }
 
   /// Find the location attached to a video file from a video path.
@@ -944,29 +889,30 @@ class Repository {
     final videoInfo = await FlutterVideoInfo().getVideoInfo(videoPath);
     final locationString = videoInfo?.location;
     if (locationString != null) {
-      print(locationString);
+      debugPrint(locationString);
       final matches = RegExp(r'(\+|\-)(\d*\.?\d*)').allMatches(locationString);
       final lat = double.parse(matches.elementAt(0).group(0)!);
       final lng = double.parse(matches.elementAt(1).group(0)!);
       return LatLng(lat, lng);
     }
+
+    return null;
   }
 
   /// Loads list of 24 videos in desc createdAt order.
   Future<List<Video>> getNewVideos() async {
-    final res = await _supabaseClient
-        .from('videos')
-        .select('id, url, image_url, thumbnail_url, gif_url,'
-            ' description, user_id, created_at')
-        .order('created_at')
-        .limit(24)
-        .execute();
-    if (res.error != null) {
-      throw PlatformException(
-          code: 'NewVideos', message: 'Error loading new videos');
+    try {
+      final data = await _supabaseClient
+          .from('videos')
+          .select('id, url, image_url, thumbnail_url, gif_url,'
+              ' description, user_id, created_at')
+          .order('created_at')
+          .limit(24);
+      final videos = Video.videosFromData(data: data, userId: userId);
+      return videos;
+    } catch (error) {
+      throw PlatformException(code: 'NewVideos', message: 'Error loading new videos');
     }
-    final videos = Video.videosFromData(data: res.data!, userId: userId);
-    return videos;
   }
 
   /// Follows a user.
@@ -980,25 +926,26 @@ class Repository {
     }
     if (profileDetailsCache[userId!] != null) {
       // Update your own follow count
-      profileDetailsCache[userId!] = profileDetailsCache[userId!]!.copyWith(
-          followingCount: profileDetailsCache[userId!]!.followingCount + 1);
+      profileDetailsCache[userId!] = profileDetailsCache[userId!]!
+          .copyWith(followingCount: profileDetailsCache[userId!]!.followingCount + 1);
     }
     if (profileDetailsCache[followedUid] != null) {
       // Update the follow count of the user who have been followed
       profileDetailsCache[followedUid] = profileDetailsCache[followedUid]!
-          .copyWith(
-              followerCount:
-                  profileDetailsCache[followedUid]!.followerCount + 1);
+          .copyWith(followerCount: profileDetailsCache[followedUid]!.followerCount + 1);
     }
     _profileStreamController.add(profileDetailsCache);
     await _supabaseClient.from('follow').insert({
       'following_user_id': userId,
       'followed_user_id': followedUid,
-    }).execute();
-    await _analytics.logEvent(name: 'follow', parameters: {
-      'following_user_id': userId,
-      'followed_user_id': followedUid,
     });
+    await _analytics.logEvent(
+      name: 'follow',
+      parameters: {
+        'following_user_id': userId,
+        'followed_user_id': followedUid,
+      },
+    );
   }
 
   /// Unfollows a user.
@@ -1012,33 +959,32 @@ class Repository {
     }
     if (profileDetailsCache[userId!] != null) {
       // Update the user's follow count
-      profileDetailsCache[userId!] = profileDetailsCache[userId!]!.copyWith(
-          followingCount: profileDetailsCache[userId!]!.followingCount - 1);
+      profileDetailsCache[userId!] = profileDetailsCache[userId!]!
+          .copyWith(followingCount: profileDetailsCache[userId!]!.followingCount - 1);
     }
     if (profileDetailsCache[followedUid] != null) {
       // update the follow count of the user who have been followed
       profileDetailsCache[followedUid] = profileDetailsCache[followedUid]!
-          .copyWith(
-              followerCount:
-                  profileDetailsCache[followedUid]!.followerCount - 1);
+          .copyWith(followerCount: profileDetailsCache[followedUid]!.followerCount - 1);
     }
     _profileStreamController.add(profileDetailsCache);
     await _supabaseClient
         .from('follow')
         .delete()
-        .eq('following_user_id', userId)
-        .eq('followed_user_id', followedUid)
-        .execute();
-    await _analytics.logEvent(name: 'unfollow', parameters: {
-      'following_user_id': userId,
-      'followed_user_id': followedUid,
-    });
+        .eq('following_user_id', userId!)
+        .eq('followed_user_id', followedUid);
+    await _analytics.logEvent(
+      name: 'unfollow',
+      parameters: {
+        'following_user_id': userId,
+        'followed_user_id': followedUid,
+      },
+    );
   }
 
   Future<String> _locationToString(LatLng location) async {
     try {
-      final placemarks =
-          await placemarkFromCoordinates(location.latitude, location.longitude);
+      final placemarks = await placemarkFromCoordinates(location.latitude, location.longitude);
       if (placemarks.isEmpty) {
         return 'Unknown';
       }
@@ -1054,44 +1000,48 @@ class Repository {
 
   /// Loads list of followers.
   Future<List<Profile>> getFollowers(String uid) async {
-    late final PostgrestResponse res;
-    // get followers of uid with is_following
-    res = await _supabaseClient.rpc('followers', params: {
-      'my_user_id': userId ?? _anonymousUUID,
-      'target_user_id': uid,
-    }).execute();
+    try {
+      // get followers of uid with is_following
+      final response = await _supabaseClient.rpc(
+        'followers',
+        params: {
+          'my_user_id': userId ?? _anonymousUUID,
+          'target_user_id': uid,
+        },
+      );
 
-    final error = res.error;
-    if (error != null) {
+      final data = response! as List;
+      final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
+      return profiles;
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'getFollowers',
         message: error.message,
       );
     }
-    final data = res.data! as List;
-    final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
-    return profiles;
   }
 
   /// Loads list of followings.
   Future<List<Profile>> getFollowings(String uid) async {
-    late final PostgrestResponse res;
-    // get followers of uid with is_following
-    res = await _supabaseClient.rpc('followings', params: {
-      'my_user_id': userId ?? _anonymousUUID,
-      'target_user_id': uid,
-    }).execute();
+    try {
+      // get followers of uid with is_following
+      final response = await _supabaseClient.rpc(
+        'followings',
+        params: {
+          'my_user_id': userId ?? _anonymousUUID,
+          'target_user_id': uid,
+        },
+      );
 
-    final error = res.error;
-    if (error != null) {
+      final data = response as List;
+      final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
+      return profiles;
+    } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'getFollowings',
         message: error.message,
       );
     }
-    final data = res.data! as List;
-    final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
-    return profiles;
   }
 
   /// Get the current user's location.

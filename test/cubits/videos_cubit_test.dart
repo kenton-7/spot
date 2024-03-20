@@ -11,8 +11,8 @@ import '../helpers/helpers.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   setUpAll(() {
-    registerFallbackValue<LatLngBounds>(LatLngBounds(
-        southwest: const LatLng(0, 0), northeast: const LatLng(45, 45)));
+    registerFallbackValue(
+        LatLngBounds(southwest: const LatLng(0, 0), northeast: const LatLng(45, 45)));
   });
   test('Initial State', () {
     final repository = MockRepository();
@@ -70,10 +70,8 @@ Future<void> main() async {
       'Can load videos from location',
       build: () {
         final repository = MockRepository();
-        when(repository.determinePosition)
-            .thenAnswer((invocation) async => const LatLng(0, 0));
-        when(() => repository.getVideosFromLocation(const LatLng(0, 0)))
-            .thenAnswer(
+        when(repository.determinePosition).thenAnswer((invocation) async => const LatLng(0, 0));
+        when(() => repository.getVideosFromLocation(const LatLng(0, 0))).thenAnswer(
           (_) => Future.value([
             Video(
               id: 'id',
@@ -89,21 +87,20 @@ Future<void> main() async {
             ),
           ]),
         );
-        when(() => repository.mapVideosStream)
-            .thenAnswer((invocation) => Stream.value([
-                  Video(
-                    id: 'id',
-                    url: 'url',
-                    imageUrl: 'imageUrl',
-                    thumbnailUrl: 'thumbnailUrl',
-                    gifUrl: 'gifUrl',
-                    createdAt: DateTime.now(),
-                    description: 'description',
-                    userId: 'userId',
-                    position: const LatLng(0, 0),
-                    isFollowing: false,
-                  ),
-                ]));
+        when(() => repository.mapVideosStream).thenAnswer((invocation) => Stream.value([
+              Video(
+                id: 'id',
+                url: 'url',
+                imageUrl: 'imageUrl',
+                thumbnailUrl: 'thumbnailUrl',
+                gifUrl: 'gifUrl',
+                createdAt: DateTime.now(),
+                description: 'description',
+                userId: 'userId',
+                position: const LatLng(0, 0),
+                isFollowing: false,
+              ),
+            ]));
         return VideosCubit(repository: repository);
       },
       act: (cubit) async {
@@ -118,21 +115,20 @@ Future<void> main() async {
       'Can load videos of a user',
       build: () {
         final repository = MockRepository();
-        when(() => repository.getVideosFromUid(''))
-            .thenAnswer((_) => Future.value([
-                  Video(
-                    id: 'id',
-                    url: 'url',
-                    imageUrl: 'imageUrl',
-                    thumbnailUrl: 'thumbnailUrl',
-                    gifUrl: 'gifUrl',
-                    createdAt: DateTime.now(),
-                    description: 'description',
-                    userId: 'userId',
-                    position: const LatLng(0, 0),
-                    isFollowing: false,
-                  ),
-                ]));
+        when(() => repository.getVideosFromUid('')).thenAnswer((_) => Future.value([
+              Video(
+                id: 'id',
+                url: 'url',
+                imageUrl: 'imageUrl',
+                thumbnailUrl: 'thumbnailUrl',
+                gifUrl: 'gifUrl',
+                createdAt: DateTime.now(),
+                description: 'description',
+                userId: 'userId',
+                position: const LatLng(0, 0),
+                isFollowing: false,
+              ),
+            ]));
         return VideosCubit(repository: repository);
       },
       act: (cubit) async {
@@ -146,8 +142,7 @@ Future<void> main() async {
       'Get initial videos from location and load more afterwards',
       build: () {
         final repository = MockRepository();
-        when(repository.determinePosition)
-            .thenAnswer((invocation) async => const LatLng(0, 0));
+        when(repository.determinePosition).thenAnswer((invocation) async => const LatLng(0, 0));
         when(() => repository.mapVideosStream).thenAnswer((_) => Stream.value([
               Video(
                 id: 'id',
@@ -197,8 +192,8 @@ Future<void> main() async {
       act: (cubit) async {
         await cubit.loadInitialVideos();
         await Future.delayed(const Duration(seconds: 3));
-        await cubit.loadVideosWithinBoundingBox(LatLngBounds(
-            southwest: const LatLng(0, 0), northeast: const LatLng(45, 45)));
+        await cubit.loadVideosWithinBoundingBox(
+            LatLngBounds(southwest: const LatLng(0, 0), northeast: const LatLng(45, 45)));
       },
       expect: () => [
         isA<VideosLoading>(),
