@@ -60,6 +60,11 @@ class FollowsPage extends StatelessWidget {
         builder: (context, state) {
           if (state is FollowerOrFollowingLoaded) {
             final profiles = state.followingOrFollower;
+            if (profiles.isEmpty) {
+              return const Center(
+                child: Text('No follower or Following'),
+              );
+            }
             return ListView.separated(
                 itemBuilder: (context, index) {
                   final profile = profiles[index];

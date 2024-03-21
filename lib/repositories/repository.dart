@@ -227,9 +227,6 @@ class Repository {
         },
       ).limit(5);
 
-      if (data == null) {
-        throw PlatformException(code: 'getVideosFromLocation error null data');
-      }
       final videoIds = _mapVideos.map((video) => video.id);
       final newVideos = Video.videosFromData(data: data as List, userId: userId)
           .where((video) => !videoIds.contains(video.id));
@@ -243,17 +240,17 @@ class Repository {
   /// Loads all videos inside a bounding box.
   Future<void> getVideosInBoundingBox(LatLngBounds bounds) async {
     try {
-      final data = await _supabaseClient.rpc('videos_in_bouding_box', params: {
-        'min_lng': '${bounds.southwest.longitude}',
-        'min_lat': '${bounds.southwest.latitude}',
-        'max_lng': '${bounds.northeast.longitude}',
-        'max_lat': '${bounds.northeast.latitude}',
-        'user_id': userId ?? _anonymousUUID,
-      });
+      final data = await _supabaseClient.rpc(
+        'videos_in_bouding_box',
+        params: {
+          'min_lng': '${bounds.southwest.longitude}',
+          'min_lat': '${bounds.southwest.latitude}',
+          'max_lng': '${bounds.northeast.longitude}',
+          'max_lat': '${bounds.northeast.latitude}',
+          'user_id': userId ?? _anonymousUUID,
+        },
+      );
 
-      if (data == null) {
-        throw PlatformException(code: 'getVideosFromLocation error null data');
-      }
       final videoIds = _mapVideos.map((video) => video.id);
       final newVideos = Video.videosFromData(data: data as List, userId: userId)
           .where((video) => !videoIds.contains(video.id));
@@ -296,7 +293,7 @@ class Repository {
       return;
     }
     try {
-      final res = await _supabaseClient.rpc(
+      final data = await _supabaseClient.rpc(
         'profile_detail',
         params: {
           'my_user_id': userId ?? _anonymousUUID,
@@ -304,13 +301,12 @@ class Repository {
         },
       );
 
-      if ((res as List).isEmpty) {
+      if ((data as List).isEmpty) {
+        _profileStreamController.sink.add(profileDetailsCache);
         return;
       }
 
-      final data = res as List<Map<dynamic, dynamic>>;
-
-      final profile = ProfileDetail.fromData(Map.from(data[0]));
+      final profile = ProfileDetail.fromData(data[0] as Map<String, dynamic>);
       profileDetailsCache[targetUid] = profile;
       _profileStreamController.sink.add(profileDetailsCache);
     } on PostgrestException catch (error) {
@@ -318,19 +314,17 @@ class Repository {
         code: error.code ?? 'Database_Error',
         message: error.message,
       );
+    } catch (error) {
+      throw PlatformException(
+        code: 'Unknown error',
+      );
     }
   }
 
   /// Updates a profile of logged in user.
   Future<void> saveProfile({required Profile profile}) async {
     try {
-      final data = await _supabaseClient.from('users').upsert(profile.toMap());
-      if (data == null) {
-        throw PlatformException(
-          code: 'Database_Error',
-          message: 'Error occured while saving profile',
-        );
-      }
+      await _supabaseClient.from('users').upsert(profile.toMap());
     } on PostgrestException catch (error) {
       throw PlatformException(
         code: error.code ?? 'Database_Error',
@@ -404,7 +398,7 @@ class Repository {
     _videoDetailStreamController.sink.add(null);
     final userId = _supabaseClient.auth.currentUser?.id;
     try {
-      List<Map<dynamic, dynamic>> data;
+      List<dynamic> data;
       if (userId != null) {
         data = await _supabaseClient
             .rpc('get_video_detail', params: {'video_id': videoId, 'user_id': userId});
@@ -414,7 +408,7 @@ class Repository {
       }
 
       var videoDetail = VideoDetail.fromData(
-        data: Map.from(List<Map<dynamic, dynamic>>.from(data).first),
+        data: Map.from(data[0] as Map<dynamic, dynamic>),
         userId: userId,
       );
       if (videoDetail.position != null) {
@@ -988,7 +982,7 @@ class Repository {
       if (placemarks.isEmpty) {
         return 'Unknown';
       }
-      if (placemarks.first.administrativeArea?.isEmpty == true) {
+      if (placemarks.first.administrativeArea == null) {
         return '${placemarks.first.name}';
       }
       return '${placemarks.first.administrativeArea}, '
@@ -1002,15 +996,16 @@ class Repository {
   Future<List<Profile>> getFollowers(String uid) async {
     try {
       // get followers of uid with is_following
-      final response = await _supabaseClient.rpc(
+      final data = await _supabaseClient.rpc(
         'followers',
         params: {
           'my_user_id': userId ?? _anonymousUUID,
           'target_user_id': uid,
         },
       );
-
-      final data = response! as List;
+      if ((data as List).isEmpty) {
+        return [];
+      }
       final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
       return profiles;
     } on PostgrestException catch (error) {
@@ -1025,15 +1020,16 @@ class Repository {
   Future<List<Profile>> getFollowings(String uid) async {
     try {
       // get followers of uid with is_following
-      final response = await _supabaseClient.rpc(
+      final data = await _supabaseClient.rpc(
         'followings',
         params: {
           'my_user_id': userId ?? _anonymousUUID,
           'target_user_id': uid,
         },
       );
-
-      final data = response as List;
+      if ((data as List).isEmpty) {
+        return [];
+      }
       final profiles = Profile.fromList(List<Map<String, dynamic>>.from(data));
       return profiles;
     } on PostgrestException catch (error) {
