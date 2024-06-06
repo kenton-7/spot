@@ -12,8 +12,8 @@
       "args": [
         "--flavor",
         "development",
-        "--dart-define=SUPABASE_URL=https://eddcwmznntrlnqrsfwji.supabase.co",
-        "--dart-define=SUPABASE_ANNON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkZGN3bXpubnRybG5xcnNmd2ppIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTA4Mzc2MTMsImV4cCI6MjAyNjQxMzYxM30.skw9PgNLa-cdd_0MwPc_2NVfRoHkX0rvMIOhrzZE3a4"
+        "--dart-define=SUPABASE_URL=https://co1p5la5g6hfi0gtjm9g.baseapi.memfiredb.com",
+        "--dart-define=SUPABASE_ANNON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImV4cCI6MzI4ODMxMDIyOSwiaWF0IjoxNzExNTEwMjI5LCJpc3MiOiJzdXBhYmFzZSJ9.16G9aWxrHnxjMewKbnioGUDPvKCCEVkIjvDjkM_EUC4"
       ]
     }
   ]

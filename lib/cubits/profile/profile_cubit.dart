@@ -88,12 +88,13 @@ class ProfileCubit extends Cubit<ProfileState> {
       }
 
       return _repository.saveProfile(
-          profile: Profile(
-        id: userId,
-        name: name,
-        description: description,
-        imageUrl: imageUrl,
-      ));
+        profile: Profile(
+          id: userId,
+          name: name,
+          description: description,
+          imageUrl: imageUrl,
+        ),
+      );
     } catch (err) {
       emit(ProfileError());
       rethrow;
@@ -104,10 +105,8 @@ class ProfileCubit extends Cubit<ProfileState> {
   Future<void> follow(String followedUid) {
     if (_followerOrFollowingList.isNotEmpty) {
       // Update the follow state within _followerOrFollowingList
-      final index = _followerOrFollowingList
-          .indexWhere((profile) => profile.id == followedUid);
-      _followerOrFollowingList[index] =
-          _followerOrFollowingList[index].copyWith(isFollowing: true);
+      final index = _followerOrFollowingList.indexWhere((profile) => profile.id == followedUid);
+      _followerOrFollowingList[index] = _followerOrFollowingList[index].copyWith(isFollowing: true);
       emit(FollowerOrFollowingLoaded(_followerOrFollowingList));
     }
     return _repository.follow(followedUid);
@@ -117,8 +116,7 @@ class ProfileCubit extends Cubit<ProfileState> {
   Future<void> unfollow(String followedUid) {
     if (_followerOrFollowingList.isNotEmpty) {
       // Update the follow state within _followerOrFollowingList
-      final index = _followerOrFollowingList
-          .indexWhere((profile) => profile.id == followedUid);
+      final index = _followerOrFollowingList.indexWhere((profile) => profile.id == followedUid);
       _followerOrFollowingList[index] =
           _followerOrFollowingList[index].copyWith(isFollowing: false);
       emit(FollowerOrFollowingLoaded(_followerOrFollowingList));
